@@ -1,0 +1,105 @@
+// karuku (mathcheck) - Prisma schema
+// DB: SQLite（ローカル・簡易運用向け）
+// 実行: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // 例: "file:./dev.db"
+}
+
+// ---- NextAuth (Google/GitHub) 用の標準モデル ----
+// @next-auth/prisma-adapter が要求するスキーマにカスタムフィールドを追加した形
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts      Account[]
+  sessions      Session[]
+
+  conversations Conversation[]
+  questions     QuestionHistory[]
+
+  createdAt     DateTime  @default(now())
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---- アプリ固有: 会話履歴・学習履歴 ----
+
+// 1つの会話セッション（チャットスレッド）
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String    @default("新しい会話")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+}
+
+// 会話中の1メッセージ（user or assistant）
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String       // "user" | "assistant" | "system"
+  content        String       // Markdown + LaTeX ( $ ... $ / $$ ... $$ )
+  isError        Boolean      @default(false) // フォールバック応答だったか
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+// 学習履歴・質問履歴（分析・振り返り用に正規化して保存）
+model QuestionHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  question     String
+  topic        String?  // 例: "二次方程式", "微分" など（AIに分類させても可）
+  isCorrect    Boolean? // 自己採点や正誤判定機能を後で使う場合用
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
