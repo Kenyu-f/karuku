@@ -16,16 +16,24 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GITHUB_SECRET as string,
     }),
   ],
+  // "database" だと middleware(Edge環境, withAuth)がログイン状態を検知できずログインループになるため "jwt" を使用。
+  // ユーザー情報自体は PrismaAdapter 経由で引き続き User/Account テーブルに保存される。
   session: {
-    strategy: "database", // Prismaにセッションを保存 -> ユーザーごとのデータ管理がしやすい
+    strategy: "jwt",
   },
   pages: {
     signIn: "/login",
   },
   callbacks: {
-    async session({ session, user }) {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
       if (session.user) {
-        (session.user as { id?: string }).id = user.id;
+        (session.user as { id?: string }).id = token.id as string;
       }
       return session;
     },
