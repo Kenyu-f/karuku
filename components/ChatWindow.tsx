@@ -8,7 +8,21 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   isError?: boolean;
+  imagePreviewUrl?: string; // 表示用(このセッション内のみ。DBには保存していない)
 };
+
+function fileToBase64(file: File): Promise<{ mimeType: string; data: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string; // "data:image/png;base64,xxxx"
+      const [, data] = result.split(",");
+      resolve({ mimeType: file.type, data });
+    };
+    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function ChatWindow({
   conversationId,
@@ -21,9 +35,10 @@ export default function ChatWindow({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 会話を切り替えたら履歴を読み込む
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
@@ -52,20 +67,57 @@ export default function ChatWindow({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setBanner("画像ファイルを選択してください。");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setBanner("画像サイズが大きすぎます(5MB以下にしてください)。");
+      return;
+    }
+    setPendingImage({ file, previewUrl: URL.createObjectURL(file) });
+    e.target.value = ""; // 同じファイルを連続選択できるようにリセット
+  }
+
+  function clearPendingImage() {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl);
+    setPendingImage(null);
+  }
+
   async function handleSend() {
     const question = input.trim();
-    if (!question || loading) return;
+    if ((!question && !pendingImage) || loading) return;
 
     setBanner(null);
-    setInput("");
     setLoading(true);
-    setMessages((prev) => [...prev, { id: `tmp-${Date.now()}`, role: "user", content: question }]);
+
+    const imageToSend = pendingImage;
+    setInput("");
+    setPendingImage(null);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `tmp-${Date.now()}`,
+        role: "user",
+        content: question || "(画像を送信)",
+        imagePreviewUrl: imageToSend?.previewUrl,
+      },
+    ]);
 
     try {
+      let imagePayload: { mimeType: string; data: string } | undefined;
+      if (imageToSend) {
+        imagePayload = await fileToBase64(imageToSend.file);
+      }
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, question }),
+        body: JSON.stringify({ conversationId, question, image: imagePayload }),
       });
 
       if (res.status === 401) {
@@ -105,7 +157,7 @@ export default function ChatWindow({
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
         {messages.length === 0 && (
           <p className="text-center text-gray-400 text-sm mt-10">
-            数学の問題や質問を入力してみましょう。途中式つきで解説します。
+            数学の問題を入力するか、途中式を撮影してアップロードしてください。
           </p>
         )}
         {messages.map((m) => (
@@ -119,6 +171,14 @@ export default function ChatWindow({
                   : "bg-gray-100 text-gray-900 rounded-bl-sm"
               }`}
             >
+              {m.imagePreviewUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={m.imagePreviewUrl}
+                  alt="添付した画像"
+                  className="mb-2 max-h-48 rounded-lg border border-white/30"
+                />
+              )}
               {m.role === "assistant" ? <MathRenderer content={m.content} /> : m.content}
             </div>
           </div>
@@ -126,7 +186,7 @@ export default function ChatWindow({
         {loading && (
           <div className="flex justify-start">
             <div className="rounded-2xl bg-gray-100 px-4 py-2 text-sm text-gray-500 animate-pulse">
-              考え中...
+              解析中...
             </div>
           </div>
         )}
@@ -134,7 +194,31 @@ export default function ChatWindow({
       </div>
 
       <div className="border-t bg-white p-3 pb-[env(safe-area-inset-bottom)]">
+        {pendingImage && (
+          <div className="mb-2 flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pendingImage.previewUrl} alt="選択した画像" className="h-14 w-14 rounded-lg object-cover border" />
+            <button onClick={clearPendingImage} className="text-xs text-red-500 underline">
+              画像を削除
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="画像を撮影・選択"
+            className="shrink-0 rounded-xl border border-gray-300 px-3 py-2 text-lg"
+          >
+            📷
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -144,13 +228,13 @@ export default function ChatWindow({
                 handleSend();
               }
             }}
-            placeholder="例: x^2 - 5x + 6 = 0 を解いて"
+            placeholder="例: x^2 - 5x + 6 = 0 を解いて(または画像だけでもOK)"
             rows={1}
             className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-indigo-400 max-h-32"
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
+            disabled={loading || (!input.trim() && !pendingImage)}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-white text-sm sm:text-base disabled:opacity-40 shrink-0"
           >
             送信

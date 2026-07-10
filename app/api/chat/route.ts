@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { askMathTutor, fallbackMessageFor, type ChatTurn } from "@/lib/gemini";
+import { askMathTutor, fallbackMessageFor, type ChatTurn, type ImageInput } from "@/lib/gemini";
 import { buildUserTurn } from "@/lib/prompts";
 
-const MAX_HISTORY_TURNS = 12; // 直近何ターンをAIに渡すか（トークン節約）
+const MAX_HISTORY_TURNS = 12; // 直近何ターンをAIに渡すか(トークン節約)
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // base64換算で概算5MBまで
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -14,34 +15,52 @@ export async function POST(req: Request) {
   }
   const userId = (session.user as { id: string }).id;
 
-  let body: { conversationId?: string; question?: string };
+  let body: {
+    conversationId?: string;
+    question?: string;
+    image?: { mimeType: string; data: string }; // data: base64(data:...;base64, は除いた本体のみ)
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "リクエストの形式が不正です" }, { status: 400 });
   }
 
-  const question = body.question?.trim();
-  if (!question) {
-    return NextResponse.json({ error: "質問内容が空です" }, { status: 400 });
+  const question = (body.question ?? "").trim();
+  const image = body.image;
+
+  if (!question && !image) {
+    return NextResponse.json({ error: "質問内容または画像を入力してください" }, { status: 400 });
+  }
+  if (image) {
+    if (!image.mimeType?.startsWith("image/")) {
+      return NextResponse.json({ error: "画像形式が不正です" }, { status: 400 });
+    }
+    if (image.data.length > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: "画像サイズが大きすぎます(5MB以下にしてください)" }, { status: 400 });
+    }
   }
 
   try {
-    // 会話が指定されていなければ新規作成
     const conversation = body.conversationId
       ? await prisma.conversation.findFirstOrThrow({
           where: { id: body.conversationId, userId },
         })
       : await prisma.conversation.create({
-          data: { userId, title: question.slice(0, 30) },
+          data: { userId, title: question ? question.slice(0, 30) : "画像からの質問" },
         });
 
-    // ユーザーの発言を先に保存
+    // ユーザーの発言を保存(画像そのものはDBに保存せず、添付した事実のみ記録する)
+    const userContentForDb = image ? `${question ? question + "\n" : ""}[画像を添付]` : question;
     await prisma.message.create({
-      data: { conversationId: conversation.id, role: "user", content: question },
+      data: {
+        conversationId: conversation.id,
+        role: "user",
+        content: userContentForDb,
+        hasImage: Boolean(image),
+      },
     });
 
-    // 直近履歴を取得してAIに渡す文脈を組み立て
     const pastMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
@@ -52,13 +71,17 @@ export async function POST(req: Request) {
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content,
     }));
-    // 最新のユーザー発言はプロンプトのフォーマット指示を添えて上書き
-    history[history.length - 1] = { role: "user", content: buildUserTurn(question) };
+    // 最新のユーザー発言はプロンプトのフォーマット指示を添えて上書き(画像はここに添付する)
+    history[history.length - 1] = { role: "user", content: buildUserTurn(question, Boolean(image)) };
+
+    const imageInput: ImageInput | undefined = image
+      ? { mimeType: image.mimeType, data: image.data }
+      : undefined;
 
     let answer: string;
     let isError = false;
     try {
-      answer = await askMathTutor(history);
+      answer = await askMathTutor(history, imageInput);
     } catch (err) {
       answer = fallbackMessageFor(err);
       isError = true;
@@ -68,9 +91,8 @@ export async function POST(req: Request) {
       data: { conversationId: conversation.id, role: "assistant", content: answer, isError },
     });
 
-    // 学習履歴（質問ログ）にも記録
     await prisma.questionHistory.create({
-      data: { userId, question },
+      data: { userId, question: question || "(画像からの質問)" },
     });
 
     return NextResponse.json({

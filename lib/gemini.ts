@@ -4,6 +4,7 @@ import { MATH_TUTOR_SYSTEM_PROMPT } from "@/lib/prompts";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
+export type ImageInput = { mimeType: string; data: string }; // data: base64(データURLのprefixは除く)
 
 export class AiUnavailableError extends Error {
   code: "rate_limited" | "overloaded" | "auth" | "unknown";
@@ -13,7 +14,7 @@ export class AiUnavailableError extends Error {
   }
 }
 
-// gemini-2.5-flash: 無料枠あり、コスト効率重視。より高精度が必要なら gemini-2.5-pro に変更可(無料枠は狭い)。
+// gemini-2.5-flash: 無料枠あり、画像入力(マルチモーダル)にも対応
 const MODEL = "gemini-2.5-flash";
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 800;
@@ -23,16 +24,27 @@ function sleep(ms: number) {
 }
 
 /**
- * 数学の質問をGeminiに送り、途中式付きの回答を取得する。
+ * 数学の質問(+任意で画像)をGeminiに送り、回答を取得する。
+ * 画像は「直近のユーザー発言」にのみ添付する(履歴の古い画像は再送しない=トークン節約)。
+ *
  * - 429(レート制限) / 503(overloaded) は指数バックオフで自動リトライ
  * - それでも失敗したら AiUnavailableError を投げる(呼び出し側でフォールバック文言を出す)
  */
-export async function askMathTutor(history: ChatTurn[]): Promise<string> {
-  // Geminiのroleは "user" / "model"(assistant相当)
-  const contents = history.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+export async function askMathTutor(history: ChatTurn[], image?: ImageInput): Promise<string> {
+  const lastIndex = history.length - 1;
+
+  const contents = history.map((m, idx) => {
+    const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
+      { text: m.content },
+    ];
+    if (image && idx === lastIndex && m.role === "user") {
+      parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+    }
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
 
   let lastError: unknown;
 
@@ -43,7 +55,7 @@ export async function askMathTutor(history: ChatTurn[]): Promise<string> {
         contents,
         config: {
           systemInstruction: MATH_TUTOR_SYSTEM_PROMPT,
-          maxOutputTokens: 2000,
+          maxOutputTokens: 2500,
         },
       });
 
