@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useSession, signIn } from "next-auth/react";
 import type { AnalysisResult } from "@/lib/types";
 import Flowchart from "@/components/Flowchart";
 import StepList from "@/components/StepList";
 import ImageUploader from "@/components/ImageUploader";
 import Header from "@/components/Header";
+import AuthStatus from "@/components/AuthStatus";
 
 type Screen = "home" | "problem" | "answer" | "analyzing" | "result";
 
@@ -83,40 +85,45 @@ export default function App() {
 /* ── Home ─────────────────────────────────────────── */
 function HomeScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center gap-8 p-8">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
-          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden>
-            <text x="7" y="33" fontSize="28" fontFamily="serif" fill="white">∫</text>
-            <circle cx="34" cy="10" r="8" fill="#60a5fa" />
-            <path d="M30 10L34 14L39 7" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-slate-900">MathCheck</h1>
-          <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-            写真を撮るだけで<br />AIが途中式の誤りを発見します
-          </p>
-        </div>
+    <div className="flex flex-col flex-1">
+      <div className="flex justify-end px-4 pt-4">
+        <AuthStatus />
       </div>
+      <div className="flex flex-col flex-1 items-center justify-center gap-8 p-8 -mt-8">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
+            <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden>
+              <text x="7" y="33" fontSize="28" fontFamily="serif" fill="white">∫</text>
+              <circle cx="34" cy="10" r="8" fill="#60a5fa" />
+              <path d="M30 10L34 14L39 7" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-slate-900">MathCheck</h1>
+            <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+              写真を撮るだけで<br />AIが途中式の誤りを発見します
+            </p>
+          </div>
+        </div>
 
-      <div className="flex flex-wrap justify-center gap-2">
-        {["計算ミス検出", "別解提示", "段階的ヒント", "解答フロー可視化"].map((f) => (
-          <span key={f} className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100">
-            {f}
-          </span>
-        ))}
+        <div className="flex flex-wrap justify-center gap-2">
+          {["計算ミス検出", "別解提示", "段階的ヒント", "解答フロー可視化"].map((f) => (
+            <span key={f} className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100">
+              {f}
+            </span>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={onStart}
+          className="w-full max-w-xs py-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold rounded-2xl shadow-md shadow-blue-200 transition-all duration-150 text-base"
+        >
+          問題を選択する →
+        </button>
+
+        <p className="text-xs text-slate-400">画像はサーバーに保存されません(解析結果のみ、ログイン時に保存)</p>
       </div>
-
-      <button
-        type="button"
-        onClick={onStart}
-        className="w-full max-w-xs py-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold rounded-2xl shadow-md shadow-blue-200 transition-all duration-150 text-base"
-      >
-        問題を選択する →
-      </button>
-
-      <p className="text-xs text-slate-400">画像はサーバーに保存されません</p>
     </div>
   );
 }
@@ -182,6 +189,8 @@ function AnalyzingScreen() {
 
 /* ── Result ───────────────────────────────────────── */
 function ResultScreen({ result, onReset }: { result: AnalysisResult; onReset: () => void }) {
+  const { status: sessionStatus } = useSession();
+
   const statusConfig = {
     correct:   { label: "正解",   bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", icon: "✓" },
     partial:   { label: "部分正解", bg: "bg-amber-50",  text: "text-amber-700",  border: "border-amber-200",  icon: "△" },
@@ -203,6 +212,20 @@ function ResultScreen({ result, onReset }: { result: AnalysisResult; onReset: ()
             )}
           </div>
         </div>
+
+        {/* 保存状況 */}
+        {result.saved ? (
+          <p className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+            ✓ 学習履歴に保存しました
+          </p>
+        ) : sessionStatus !== "loading" ? (
+          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+            <span>ログインすると学習履歴として保存されます</span>
+            <button onClick={() => signIn()} className="text-blue-600 font-medium shrink-0">
+              ログイン
+            </button>
+          </p>
+        ) : null}
 
         {/* Hint */}
         <Section title="💡 ヒント">

@@ -1,6 +1,6 @@
 // karuku (mathcheck) - Prisma schema
 // DB: SQLite(ローカル・簡易運用向け)
-// 実行: npx prisma migrate dev --name add_has_image
+// 実行: npx prisma migrate dev --name add_analysis_record
 
 generator client {
   provider = "prisma-client-js"
@@ -21,6 +21,10 @@ model User {
   accounts      Account[]
   sessions      Session[]
 
+  // ホーム画面フロー(問題画像×解答画像の解析)の履歴。今回追加。
+  analyses      AnalysisRecord[]
+
+  // 旧/chat機能用(現在は本流では未使用。ファイルを壊さないためスキーマは残置)
   conversations Conversation[]
   questions     QuestionHistory[]
 
@@ -63,6 +67,22 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+// ── ホーム画面フロー(本流)用 ─────────────────────────
+// 「問題画像 × 解答画像」を解析した結果の履歴(学習履歴・質問履歴)
+model AnalysisRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  status    String   // "correct" | "incorrect" | "partial"
+  mistake   String?
+  hint      String
+  flowchart String   // JSON文字列としてstring[]を保存
+  steps     String   // JSON文字列としてStepDetail[]を保存
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── 旧/chat機能用(現在未使用。参照エラー防止のため残置) ──
 model Conversation {
   id        String    @id @default(cuid())
   userId    String
@@ -77,10 +97,10 @@ model Conversation {
 model Message {
   id             String       @id @default(cuid())
   conversationId String
-  role           String       // "user" | "assistant" | "system"
-  content        String       // Markdown + LaTeX ( $ ... $ / $$ ... $$ )
-  hasImage       Boolean      @default(false) // ユーザーが画像を添付したか(画像自体は保存しない)
-  isError        Boolean      @default(false) // フォールバック応答だったか
+  role           String
+  content        String
+  hasImage       Boolean      @default(false)
+  isError        Boolean      @default(false)
   createdAt      DateTime     @default(now())
 
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

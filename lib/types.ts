@@ -6,6 +6,7 @@ export interface AnalysisResult {
   hint: string;
   flowchart: string[];
   steps: StepDetail[];
+  saved?: boolean; // ログイン済みで学習履歴に保存された場合 true
 }
 
 export interface StepDetail {

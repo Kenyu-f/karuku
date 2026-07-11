@@ -6,6 +6,9 @@ export default withAuth({
   },
 });
 
+// "/api/analyze" は未ログインでも使える方針のため対象外(ログイン時の自動保存は
+// route.ts内でgetServerSessionにより判定している)。
+// "/api/records" (履歴一覧)はログイン必須の機能なのでミドルウェアでも保護する。
 export const config = {
-  matcher: ["/chat/:path*", "/api/chat/:path*", "/api/history/:path*"],
+  matcher: ["/api/records/:path*"],
 };

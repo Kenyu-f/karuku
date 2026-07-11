@@ -1,3 +1,5 @@
+import AuthStatus from "./AuthStatus";
+
 interface HeaderProps {
   title: string;
   onBack?: () => void;
@@ -18,7 +20,8 @@ export default function Header({ title, onBack, showBack = true }: HeaderProps) 
           </svg>
         </button>
       )}
-      <h1 className="font-semibold text-slate-800">{title}</h1>
+      <h1 className="font-semibold text-slate-800 flex-1">{title}</h1>
+      <AuthStatus />
     </header>
   );
 }
