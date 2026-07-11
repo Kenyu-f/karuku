@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { MATH_TUTOR_SYSTEM_PROMPT } from "@/lib/prompts";
+import type { AnalysisResult } from "@/lib/types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -109,8 +110,9 @@ export function fallbackMessageFor(err: unknown): string {
   return "予期しないエラーが発生しました。時間をおいて再度お試しください。";
 }
 
-import { Type } from "@google/genai";
-import type { AnalysisResult } from "@/lib/types";
+/* ────────────────────────────────────────────────── */
+/* ここから: ホーム画面フロー(問題画像×解答画像の採点)用   */
+/* ────────────────────────────────────────────────── */
 
 const ANALYZE_SYSTEM_PROMPT = `
 あなたは数学の解答を採点する厳密な採点者AIです。
