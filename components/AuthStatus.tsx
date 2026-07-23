@@ -1,8 +1,8 @@
 "use client";
 
 import { useSession, signIn, signOut } from "next-auth/react";
+import Link from "next/link";
 
-// eslint-disable-next-line @next/next/no-img-element
 export default function AuthStatus() {
   const { data: session, status } = useSession();
 
@@ -22,20 +22,27 @@ export default function AuthStatus() {
   }
 
   return (
-    <button
-      onClick={() => signOut()}
-      className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 px-1.5 py-1 rounded-lg hover:bg-slate-100 transition-colors"
-      title="ログアウト"
-    >
-      {session.user?.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={session.user.image} alt="" className="h-6 w-6 rounded-full" />
-      ) : (
-        <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold">
-          {session.user?.name?.[0] ?? "U"}
-        </div>
-      )}
-      <span className="hidden sm:inline">ログアウト</span>
-    </button>
+    <div className="flex items-center gap-2">
+      <Link
+        href="/history"
+        className="text-xs font-medium text-slate-500 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors"
+      >
+        履歴
+      </Link>
+      <button
+        onClick={() => signOut()}
+        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 px-1.5 py-1 rounded-lg hover:bg-slate-100 transition-colors"
+        title="ログアウト"
+      >
+        {session.user?.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={session.user.image} alt="" className="h-6 w-6 rounded-full" />
+        ) : (
+          <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold">
+            {session.user?.name?.[0] ?? "U"}
+          </div>
+        )}
+      </button>
+    </div>
   );
 }
